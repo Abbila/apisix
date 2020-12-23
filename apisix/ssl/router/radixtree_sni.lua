@@ -22,7 +22,7 @@ local config_util      = require("apisix.core.config_util")
 local ipairs	       = ipairs
 local type             = type
 local error            = error
-local str_find         = string.find
+local str_find         = core.string.find
 local aes              = require "resty.aes"
 local assert           = assert
 local str_gsub         = string.gsub
@@ -67,12 +67,18 @@ local function decrypt_priv_pkey(iv, key)
         return key
     end
 
-    local decrypted = iv:decrypt(ngx_decode_base64(key))
-    if decrypted then
-        return decrypted
+    local decoded_key = ngx_decode_base64(key)
+    if not decoded_key then
+        core.log.error("base64 decode ssl key failed and skipped. key[", key, "] ")
+        return
     end
 
-    core.log.error("decrypt ssl key failed. key[", key, "] ")
+    local decrypted = iv:decrypt(decoded_key)
+    if not decrypted then
+        core.log.error("decrypt ssl key failed and skipped. key[", key, "] ")
+    end
+
+    return decrypted
 end
 
 
@@ -202,7 +208,10 @@ function _M.match_and_set(api_ctx)
     local sni
     sni, err = ngx_ssl.server_name()
     if type(sni) ~= "string" then
-        return false, "failed to fetch SSL certificate: " .. (err or "not found")
+        local advise = "please check if the client requests via IP or uses an outdated protocol" ..
+                       ". If you need to report an issue, " ..
+                       "provide a packet capture file of the TLS handshake."
+        return false, "failed to find SNI: " .. (err or advise)
     end
 
     core.log.debug("sni: ", sni)
@@ -218,7 +227,7 @@ function _M.match_and_set(api_ctx)
     if type(api_ctx.matched_sni) == "table" then
         local matched = false
         for _, msni in ipairs(api_ctx.matched_sni) do
-            if sni_rev == msni or not str_find(sni_rev, ".", #msni, true) then
+            if sni_rev == msni or not str_find(sni_rev, ".", #msni) then
                 matched = true
             end
         end
@@ -233,7 +242,7 @@ function _M.match_and_set(api_ctx)
             return false
         end
     else
-        if str_find(sni_rev, ".", #api_ctx.matched_sni, true) then
+        if str_find(sni_rev, ".", #api_ctx.matched_sni) then
             core.log.warn("failed to find any SSL certificate by SNI: ",
                           sni, " matched SNI: ", api_ctx.matched_sni:reverse())
             return false

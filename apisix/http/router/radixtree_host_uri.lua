@@ -17,6 +17,7 @@
 local require = require
 local router = require("resty.radixtree")
 local core = require("apisix.core")
+local http_route = require("apisix.http.route")
 local ipairs = ipairs
 local type = type
 local error = error
@@ -93,7 +94,11 @@ local function create_radixtree_router(routes)
     host_router = nil
 
     for _, route in ipairs(routes or {}) do
-        push_host_router(route, host_routes, only_uri_routes)
+        local status = core.table.try_read_attr(route, "value", "status")
+        -- check the status
+        if not status or status == 1 then
+            push_host_router(route, host_routes, only_uri_routes)
+        end
     end
 
     -- create router: host_router
@@ -160,6 +165,7 @@ function _M.init_worker(filter)
     user_routes, err = core.config.new("/routes", {
             automatic = true,
             item_schema = core.schema.route,
+            checker = http_route.check_route,
             filter = filter,
         })
     if not user_routes then
